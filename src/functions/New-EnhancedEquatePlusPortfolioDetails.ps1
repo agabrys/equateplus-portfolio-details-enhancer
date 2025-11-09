@@ -82,7 +82,7 @@ Shows detailed progress for module loading, row processing, and worksheet creati
 
 .NOTES
 Author:  Adam Gabryś
-Date:    2025-11-09
+Date:    2025-11-10
 Version: 0.1.0
 License: Apache-2.0
 
@@ -349,8 +349,17 @@ function New-EnhancedEquatePlusPortfolioDetails {
     }
 
     $outputFiles = [System.Collections.ArrayList]@()
+
     $generateOutputFilePath = $false
     if (-not $OutputFile) {
+      $generateOutputFilePath = $true
+    }
+    $pipelineExecution = $MyInvocation.ExpectingInput
+    if ($pipelineExecution) {
+      if ($PSBoundParameters.ContainsKey('OutputFile')) {
+        Write-Error 'The OutputFile parameter cannot be specified when using pipeline input.'
+        exit 2
+      }
       $generateOutputFilePath = $true
     }
   }
@@ -358,14 +367,6 @@ function New-EnhancedEquatePlusPortfolioDetails {
     if (-not (Test-Path -Path $InputFile -PathType Leaf)) {
       Write-Error "Input file `"$([System.IO.Path]::GetFullPath($InputFile))`" does not exist."
       exit 1
-    }
-
-    if ($MyInvocation.ExpectingInput) {
-      if ($PSBoundParameters.ContainsKey('OutputFile')) {
-        Write-Error 'The OutputFile parameter cannot be specified when using pipeline input.'
-        exit 2
-      }
-      $generateOutputFilePath = $true
     }
 
     if ($generateOutputFilePath) {
@@ -436,7 +437,7 @@ function New-EnhancedEquatePlusPortfolioDetails {
         TableStyle    = 'Light1'
         FreezeTopRow  = $true
         AutoSize      = $true
-        Show          = $true
+        Show          = -not $pipelineExecution
       }
       $inputData | Export-Excel @params
     }
