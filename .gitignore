@@ -1,0 +1,6 @@
+*.xls
+*.xlsx
+
+# LibreOffice/OpenOffice lock files
+*.xls#
+*.xlsx#
