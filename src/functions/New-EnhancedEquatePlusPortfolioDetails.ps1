@@ -1,17 +1,17 @@
 <#
-    Copyright 2025 Adam Gabryś
+   Copyright 2025 Adam Gabryś
 
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at:
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
 
-        http://www.apache.org/licenses/LICENSE-2.0
+       http://www.apache.org/licenses/LICENSE-2.0
 
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
 #>
 
 <#
@@ -47,23 +47,41 @@ Fields Legend:
 The function ensures the required version of the ImportExcel module (7.8.10) is installed and imported
 during execution, restoring any previously loaded versions afterward.
 
+It returns a collection where each item is a PSCustomObject with the following properties:
+- InputFile: The path to the source Excel file.
+- OutputFile: The path to the created enhanced Excel report.
+
+.PARAMETER InputFiles
+Paths to the source Excel files containing portfolio details.
+All generated report files will use the same names as the source files, prefixed with "Enhanced-".
+
 .PARAMETER InputFile
-Path to the source Excel file containing portfolio details.
-This parameter is mandatory and can accept input from the pipeline.
+Path to a single source Excel file containing portfolio details.
+
+.PARAMETER OutputDir
+Path to the directory where the enhanced Excel report(s) will be created.
+If not specified, the reports will be saved in the current directory.
 
 .PARAMETER OutputFile
-Optional path where the enhanced Excel report will be created.
+Path where the enhanced Excel report will be created.
 If not specified, the output file will default to "Enhanced-" followed by the input file name.
-This parameter cannot be used when the function receives input from the pipeline.
 
 .INPUTS
 System.String
-- InputFile: Path to an existing Excel file containing portfolio data. Can be provided via the pipeline.
-- OutputFile: Optional path where the enhanced report will be saved. Cannot be used with pipeline input.
+System.String[]
 
 .OUTPUTS
-System.String
-- The full path of the created enhanced Excel report file.
+System.Collections.IList
+
+.EXAMPLE
+'Portfolio1.xlsx' | New-EnhancedEquatePlusPortfolioDetails
+
+Accepts an input file from the pipeline and generates an enhanced report, saving it in the current directory with a default output file name.
+
+.EXAMPLE
+'Portfolio1.xlsx', 'Portfolio2.xlsx' | New-EnhancedEquatePlusPortfolioDetails -OutputDir 'C:\reports'
+
+Accepts input files from the pipeline and generates enhanced reports, saving them in the C:\reports directory with default output file names.
 
 .EXAMPLE
 New-EnhancedEquatePlusPortfolioDetails -InputFile 'Portfolio.xlsx' -OutputFile 'DetailedPortfolio.xlsx'
@@ -71,19 +89,14 @@ New-EnhancedEquatePlusPortfolioDetails -InputFile 'Portfolio.xlsx' -OutputFile '
 Creates a detailed Excel report from Portfolio.xlsx and saves it as DetailedPortfolio.xlsx.
 
 .EXAMPLE
-'Portfolio.xlsx' | New-EnhancedEquatePlusPortfolioDetails
-
-Accepts the input file from the pipeline and generates the enhanced report using the default output file name.
-
-.EXAMPLE
-New-EnhancedEquatePlusPortfolioDetails -InputFile 'Portfolio.xlsx' -OutputFile 'DetailedPortfolio.xlsx' -Verbose
+New-EnhancedEquatePlusPortfolioDetails -InputFile 'Portfolio.xlsx' -Verbose
 
 Shows detailed progress for module loading, row processing, and worksheet creation.
 
 .NOTES
 Author:  Adam Gabryś
-Date:    2025-11-10
-Version: 0.1.0
+Date:    2025-11-27
+Version: 0.2.0
 License: Apache-2.0
 
 .LINK
@@ -91,9 +104,14 @@ https://github.com/agabrys/equateplus-portfolio-details-enhancer
 #>
 function New-EnhancedEquatePlusPortfolioDetails {
   param (
-    [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+    [Parameter(ParameterSetName = 'Batch', Mandatory = $true, ValueFromPipeline = $true)]
+    [string[]]$InputFiles,
+    [Parameter(ParameterSetName = 'Batch')]
+    [string]$OutputDir,
+
+    [Parameter(ParameterSetName = 'Single', Mandatory = $true)]
     [string]$InputFile,
-    [Parameter()]
+    [Parameter(ParameterSetName = 'Single')]
     [string]$OutputFile
   )
   begin {
@@ -136,7 +154,7 @@ function New-EnhancedEquatePlusPortfolioDetails {
 
       } finally {
         if ($null -eq $originalModule -or $originalModule.Version -ne $version) {
-          Write-Verbose "Restoring the ImportExcel module to its state before the scriptlet was executed."
+          Write-Verbose 'Restoring the ImportExcel module to its state before the scriptlet was executed.'
           Write-Verbose "Removing the currently imported version ${version} of the ImportExcel module."
           Remove-Module -Name $name
           if ($null -ne $originalModule) {
@@ -187,20 +205,20 @@ function New-EnhancedEquatePlusPortfolioDetails {
       return $item
     }
 
-    function New-CleanFileStructure {
+    function Initialize-CleanFilePath {
       param(
         [Parameter(Mandatory = $true)]
         [string]$FilePath
       )
-      $fullPath = if ([System.IO.Path]::IsPathRooted($FilePath)) { $FilePath } else { Join-Path -Path (Get-Location) -ChildPath $FilePath }
-      $parentDir = [System.IO.Path]::GetDirectoryName($fullPath)
+      $parentDir = [System.IO.Path]::GetDirectoryName($FilePath)
       if (-not (Test-Path -Path $parentDir)) {
+        Write-Verbose "Creating directory `"${parentDir}`"."
         New-Item -Path $parentDir -ItemType Directory -Force | Out-Null
       }
-      if (Test-Path -Path $fullPath) {
-        Remove-Item -Path $fullPath -Force | Out-Null
+      if (Test-Path -Path $FilePath) {
+        Write-Verbose "Removing file `"${FilePath}`"."
+        Remove-Item -Path $FilePath -Force | Out-Null
       }
-      return $fullPath
     }
 
     function ConvertTo-ItemsWithCellReferences {
@@ -348,101 +366,111 @@ function New-EnhancedEquatePlusPortfolioDetails {
       )
     }
 
-    $outputFiles = [System.Collections.ArrayList]@()
+    $currentInputFiles = [System.Collections.ArrayList]@()
 
-    $generateOutputFilePath = $false
-    if (-not $OutputFile) {
-      $generateOutputFilePath = $true
+    if ($OutputDir) {
+      $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
     }
-    $pipelineExecution = $MyInvocation.ExpectingInput
-    if ($pipelineExecution) {
-      if ($PSBoundParameters.ContainsKey('OutputFile')) {
-        Write-Error 'The OutputFile parameter cannot be specified when using pipeline input.'
-        exit 2
-      }
-      $generateOutputFilePath = $true
+    if ($OutputFile) {
+      $OutputFile = [System.IO.Path]::GetFullPath($OutputFile)
     }
   }
   process {
-    if (-not (Test-Path -Path $InputFile -PathType Leaf)) {
-      Write-Error "Input file `"$([System.IO.Path]::GetFullPath($InputFile))`" does not exist."
-      exit 1
-    }
-
-    if ($generateOutputFilePath) {
-      Write-Verbose 'No OutputFile parameter provided. Constructing default path.'
-      $directory = [System.IO.Path]::GetDirectoryName($InputFile)
-      $filename = [System.IO.Path]::GetFileName($InputFile)
-      $OutputFile = Join-Path -Path $directory -ChildPath "Enhanced-${filename}"
-      Write-Verbose "Constructed output file path `"${OutputFile}`"."
-    }
-
-    Use-ImportExcelModuleRequiredVersion -ScriptBlock {
-      $rowIndex = 6
-      Write-Verbose "Reading Excel data starting with row ${rowIndex} from file `"${InputFile}`"."
-      $inputData = Import-Excel -Path $InputFile -StartRow $rowIndex
-      Write-Verbose "Imported $($inputData.Count) rows from `"${InputFile}`"."
-
-      $internalItems = [System.Collections.ArrayList]@()
-      foreach ($row in $inputData) {
-        $rowIndex++
-        $internalItems.Add((ConvertTo-InternalItem -ExcelRow $row -Index $rowIndex)) | Out-Null
+    $files = if ($PSCmdlet.ParameterSetName -eq 'Batch') { $InputFiles } else { @($InputFile) }
+    foreach ($file in $files) {
+      $file = [System.IO.Path]::GetFullPath($file)
+      if (-not (Test-Path -Path $file -PathType Leaf)) {
+        Write-Error "Input file `"${file}`" does not exist."
+        exit 1
       }
-      $internalItems = $internalItems | Sort-Object -Property Date
-
-      $excelFile = New-CleanFileStructure -FilePath $OutputFile
-      $outputFiles.Add($excelFile) | Out-Null
-
-      Write-Verbose 'Creating "Overview" worksheet.'
-      $params = @{
-        Path          = $excelFile
-        WorksheetName = 'Overview'
-        TableStyle    = 'Light1'
-        FreezeTopRow  = $true
-        AutoSize      = $true
-      }
-      New-OverviewItems -LastRowIndex ($internalItems.Count + 1) | Export-Excel @params
-
-      Write-Verbose 'Creating "Tax Rates" worksheet.'
-      $params = @{
-        Path          = $excelFile
-        WorksheetName = 'Tax Rates'
-        TableStyle    = 'Light1'
-        FreezeTopRow  = $true
-        AutoSize      = $true
-      }
-      New-TaxItems | Export-Excel @params
-
-      Write-Verbose 'Creating "Detailed Data" worksheet.'
-      $params = @{
-        Path          = $excelFile
-        WorksheetName = 'Detailed Data'
-        TableStyle    = 'Light1'
-        FreezeTopRow  = $true
-        AutoSize      = $true
-      }
-      $internalItems | ConvertTo-DetailedItems | Export-Excel @params
-
-      Write-Verbose 'Formatting dates in the input data.'
-      foreach ($item in $inputData) {
-        $beginning = Get-Date '1899-12-30'
-        foreach ($property in @('Allocation date', 'Available from', 'Expiry date')) {
-          $item.$property = $beginning.AddDays($item.$property).ToString('yyyy-MM-dd')
-        }
-      }
-      Write-Verbose 'Creating "Input Data" worksheet.'
-      $params = @{
-        Path          = $excelFile
-        WorksheetName = 'Input Data'
-        TableStyle    = 'Light1'
-        FreezeTopRow  = $true
-        AutoSize      = $true
-        Show          = -not $pipelineExecution
-      }
-      $inputData | Export-Excel @params
+      $currentInputFiles.Add([System.IO.Path]::GetFullPath($file)) | Out-Null
     }
   }
   end {
-    return $outputFiles
+    $output = [System.Collections.ArrayList]@()
+
+    Use-ImportExcelModuleRequiredVersion -ScriptBlock {
+      foreach ($currentInputFile in $currentInputFiles) {
+        Write-Verbose "Processing file `"${currentInputFile}`"."
+
+        $currentOutputFile = $OutputFile
+        if (-not $OutputFile) {
+          $directory = if ($OutputDir) { $OutputDir } else { [System.IO.Path]::GetDirectoryName($currentInputFile) }
+          $filename = [System.IO.Path]::GetFileName($currentInputFile)
+          $currentOutputFile = Join-Path -Path $directory -ChildPath "Enhanced-${filename}"
+          Write-Verbose "Constructed output file path `"${currentOutputFile}`"."
+        }
+
+        $rowIndex = 6
+        Write-Verbose "Reading Excel data starting with row ${rowIndex} from file `"${currentInputFile}`"."
+        $inputData = Import-Excel -Path $currentInputFile -StartRow $rowIndex
+        Write-Verbose "Imported $($inputData.Count) rows from `"${currentInputFile}`"."
+
+        $internalItems = [System.Collections.ArrayList]@()
+        foreach ($row in $inputData) {
+          $rowIndex++
+          $internalItems.Add((ConvertTo-InternalItem -ExcelRow $row -Index $rowIndex)) | Out-Null
+        }
+        $internalItems = $internalItems | Sort-Object -Property Date
+
+        Initialize-CleanFilePath -FilePath $currentOutputFile
+        $output.Add([PSCustomObject]@{
+            InputFile  = $currentInputFile
+            OutputFile = $currentOutputFile
+          }) | Out-Null
+
+        Write-Verbose 'Creating "Overview" worksheet.'
+        $params = @{
+          Path          = $currentOutputFile
+          WorksheetName = 'Overview'
+          TableStyle    = 'Light1'
+          FreezeTopRow  = $true
+          AutoSize      = $true
+        }
+        New-OverviewItems -LastRowIndex ($internalItems.Count + 1) | Export-Excel @params
+
+        Write-Verbose 'Creating "Tax Rates" worksheet.'
+        $params = @{
+          Path          = $currentOutputFile
+          WorksheetName = 'Tax Rates'
+          TableStyle    = 'Light1'
+          FreezeTopRow  = $true
+          AutoSize      = $true
+        }
+        New-TaxItems | Export-Excel @params
+
+        Write-Verbose 'Creating "Detailed Data" worksheet.'
+        $params = @{
+          Path          = $currentOutputFile
+          WorksheetName = 'Detailed Data'
+          TableStyle    = 'Light1'
+          FreezeTopRow  = $true
+          AutoSize      = $true
+        }
+        $internalItems | ConvertTo-DetailedItems | Export-Excel @params
+
+        Write-Verbose 'Formatting dates in the input data.'
+        foreach ($item in $inputData) {
+          $beginning = Get-Date '1899-12-30'
+          foreach ($property in @('Allocation date', 'Available from', 'Expiry date')) {
+            $item.$property = $beginning.AddDays($item.$property).ToString('yyyy-MM-dd')
+          }
+        }
+        Write-Verbose 'Creating "Input Data" worksheet.'
+        $params = @{
+          Path          = $currentOutputFile
+          WorksheetName = 'Input Data'
+          TableStyle    = 'Light1'
+          FreezeTopRow  = $true
+          AutoSize      = $true
+          Show          = $false
+        }
+        $inputData | Export-Excel @params
+
+        Write-Verbose "Saved file `"${currentOutputFile}`"."
+      }
+    }
+
+    return $output
   }
 }
