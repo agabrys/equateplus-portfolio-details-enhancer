@@ -47,9 +47,9 @@ Fields Legend:
 The function ensures the required version of the ImportExcel module (7.8.10) is installed and imported
 during execution, restoring any previously loaded versions afterward.
 
-It returns a collection where each item is a PSCustomObject with the following properties:
-- InputFile: The path to the source Excel file.
-- OutputFile: The path to the created enhanced Excel report.
+It returns a list of PSCustomObject objects, where each object stores two properties:
+1. InputFile – absolute path to the source Excel report,
+2. OutputFile – absolute path to the created enhanced Excel report.
 
 .PARAMETER InputFiles
 Paths to the source Excel files containing portfolio details.
@@ -81,12 +81,15 @@ The default is 26.375.
 Specifies whether the enhanced Excel report(s) should be opened automatically after creation.
 
 .INPUTS
-System.Double
-System.String
-System.String[]
+System.String[]. An array of paths to the source Excel files.
+
+.INPUTS
+None. When the -InputFile parameter is used, no values are accepted from the pipeline.
 
 .OUTPUTS
-System.Collections.IList
+System.Collections.IList<PSCustomObject>. A list of PSCustomObject objects, where each object stores two properties:
+1. InputFile – absolute path to the source Excel report,
+2. OutputFile – absolute path to the created enhanced Excel report.
 
 .EXAMPLE
 'Portfolio1.xlsx' | New-EnhancedEquatePlusPortfolioDetails
@@ -114,7 +117,7 @@ Shows detailed progress for module loading, row processing, and worksheet creati
 .NOTES
 Author:  Adam Gabryś
 Date:    2025-11-29
-Version: 0.4.0
+Version: 0.4.1
 License: Apache-2.0
 
 .LINK
