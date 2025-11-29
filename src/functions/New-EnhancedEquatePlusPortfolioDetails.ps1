@@ -36,7 +36,7 @@ Fields Legend:
 - Estimated Net Profit: Net profit after tax, calculated as Real Unrealized Gains − Estimated Tax.
 - Estimated Tax: Estimated tax liability on taxable gains based on predefined tax rates.
 - Market Price: The current market price of a single share at the time of processing.
-- Own Costs: The portion of costs attributable to the employee, including company match adjustments.
+- Own Costs: The employee's costs for shares received through the employer's Company Match.
 - Percentage Gain: Estimated Net Profit expressed as a percentage of Own Costs.
 - Plan: The name of the portfolio plan.
 - Real Unrealized Gains: Actual unrealized gains after deducting Own Costs.
@@ -66,7 +66,19 @@ If not specified, the reports will be saved in the current directory.
 Path where the enhanced Excel report will be created.
 If not specified, the output file will default to "Enhanced-" followed by the input file name.
 
+.PARAMETER IncomeTax
+Specifies the income tax percentage used to calculate the employee's Own Costs for shares
+purchased by the employer as part of the Company Match.
+This value must be a double between 0.0 and 100.0 (inclusive).
+The default is 42.0.
+
+.PARAMETER CapitalGainsTax
+Specifies the capital gains tax percentage to apply.
+This value must be a double between 0.0 and 100.0 (inclusive).
+The default is 26.375.
+
 .INPUTS
+System.Double
 System.String
 System.String[]
 
@@ -76,17 +88,20 @@ System.Collections.IList
 .EXAMPLE
 'Portfolio1.xlsx' | New-EnhancedEquatePlusPortfolioDetails
 
-Accepts an input file from the pipeline and generates an enhanced report, saving it in the current directory with a default output file name.
+Accepts an input file from the pipeline, applies an income tax of 42% and a capital gains tax of 26.375%,
+and saves the report in the current directory as Enhanced-Portfolio1.xlsx.
 
 .EXAMPLE
-'Portfolio1.xlsx', 'Portfolio2.xlsx' | New-EnhancedEquatePlusPortfolioDetails -OutputDir 'C:\reports'
+'Portfolio1.xlsx', 'Portfolio2.xlsx' | New-EnhancedEquatePlusPortfolioDetails -OutputDir 'C:\reports' -IncomeTax 35 -CapitalGainsTax 20
 
-Accepts input files from the pipeline and generates enhanced reports, saving them in the C:\reports directory with default output file names.
+Accepts multiple input files from the pipeline, applies an income tax of 35% and capital gains tax of 20%,
+and saves enhanced reports in the C:\reports directory.
 
 .EXAMPLE
-New-EnhancedEquatePlusPortfolioDetails -InputFile 'Portfolio.xlsx' -OutputFile 'DetailedPortfolio.xlsx'
+New-EnhancedEquatePlusPortfolioDetails -InputFile 'Portfolio.xlsx' -OutputFile 'DetailedPortfolio.xlsx' -IncomeTax 45 -CapitalGainsTax 30
 
-Creates a detailed Excel report from Portfolio.xlsx and saves it as DetailedPortfolio.xlsx.
+Generates a detailed Excel report from Portfolio.xlsx, applies an income tax of 45% and a capital gains tax of 30%,
+and saves the report as DetailedPortfolio.xlsx.
 
 .EXAMPLE
 New-EnhancedEquatePlusPortfolioDetails -InputFile 'Portfolio.xlsx' -Verbose
@@ -95,8 +110,8 @@ Shows detailed progress for module loading, row processing, and worksheet creati
 
 .NOTES
 Author:  Adam Gabryś
-Date:    2025-11-27
-Version: 0.2.0
+Date:    2025-11-29
+Version: 0.3.0
 License: Apache-2.0
 
 .LINK
@@ -112,7 +127,14 @@ function New-EnhancedEquatePlusPortfolioDetails {
     [Parameter(ParameterSetName = 'Single', Mandatory = $true)]
     [string]$InputFile,
     [Parameter(ParameterSetName = 'Single')]
-    [string]$OutputFile
+    [string]$OutputFile,
+
+    [Parameter()]
+    [ValidateRange(0.0, 100.0)]
+    [double]$IncomeTax = 42.0,
+    [Parameter()]
+    [ValidateRange(0.0, 100.0)]
+    [double]$CapitalGainsTax = 26.375
   )
   begin {
     function Use-ImportExcelModuleRequiredVersion {
@@ -352,15 +374,22 @@ function New-EnhancedEquatePlusPortfolioDetails {
     }
 
     function New-TaxItems {
+      param(
+        [Parameter(Mandatory = $true)]
+        [double]$IncomeTax,
+        [Parameter(Mandatory = $true)]
+        [double]$CapitalGainsTax
+      )
+      Write-Verbose "Tax rates: income = ${IncomeTax}%, capital gains = ${CapitalGainsTax}%."
       return @(
         [PSCustomObject]@{
           Tax               = 'Income'
-          'Rate Percentage' = 42
+          'Rate Percentage' = $IncomeTax
           Rate              = "=B2 / 100"
         },
         [PSCustomObject]@{
           Tax               = 'Capital Gains'
-          'Rate Percentage' = 26.375
+          'Rate Percentage' = $CapitalGainsTax
           Rate              = "=B3 / 100"
         }
       )
@@ -437,7 +466,7 @@ function New-EnhancedEquatePlusPortfolioDetails {
           FreezeTopRow  = $true
           AutoSize      = $true
         }
-        New-TaxItems | Export-Excel @params
+        New-TaxItems -IncomeTax $IncomeTax -CapitalGainsTax $CapitalGainsTax | Export-Excel @params
 
         Write-Verbose 'Creating "Detailed Data" worksheet.'
         $params = @{
