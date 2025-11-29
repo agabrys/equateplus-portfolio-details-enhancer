@@ -77,6 +77,9 @@ Specifies the capital gains tax percentage to apply.
 This value must be a double between 0.0 and 100.0 (inclusive).
 The default is 26.375.
 
+.PARAMETER Open
+Specifies whether the enhanced Excel report(s) should be opened automatically after creation.
+
 .INPUTS
 System.Double
 System.String
@@ -111,7 +114,7 @@ Shows detailed progress for module loading, row processing, and worksheet creati
 .NOTES
 Author:  Adam Gabryś
 Date:    2025-11-29
-Version: 0.3.0
+Version: 0.4.0
 License: Apache-2.0
 
 .LINK
@@ -134,7 +137,10 @@ function New-EnhancedEquatePlusPortfolioDetails {
     [double]$IncomeTax = 42.0,
     [Parameter()]
     [ValidateRange(0.0, 100.0)]
-    [double]$CapitalGainsTax = 26.375
+    [double]$CapitalGainsTax = 26.375,
+
+    [Parameter()]
+    [switch]$Open
   )
   begin {
     function Use-ImportExcelModuleRequiredVersion {
@@ -492,7 +498,7 @@ function New-EnhancedEquatePlusPortfolioDetails {
           TableStyle    = 'Light1'
           FreezeTopRow  = $true
           AutoSize      = $true
-          Show          = $false
+          Show          = $Open
         }
         $inputData | Export-Excel @params
 
