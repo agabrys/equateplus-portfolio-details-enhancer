@@ -116,14 +116,15 @@ Shows detailed progress for module loading, row processing, and worksheet creati
 
 .NOTES
 Author:  Adam Gabryś
-Date:    2025-11-29
-Version: 0.4.1
+Date:    2025-11-30
+Version: 0.5.0
 License: Apache-2.0
 
 .LINK
 https://github.com/agabrys/equateplus-portfolio-details-enhancer
 #>
 function New-EnhancedEquatePlusPortfolioDetails {
+  [CmdletBinding(SupportsShouldProcess = $true)]
   param (
     [Parameter(ParameterSetName = 'Batch', Mandatory = $true, ValueFromPipeline = $true)]
     [string[]]$InputFiles,
@@ -157,39 +158,52 @@ function New-EnhancedEquatePlusPortfolioDetails {
 
       $module = Get-Module -Name $name -ListAvailable | Where-Object -Property Version -EQ $version
       if ($null -eq $module) {
-        Write-Verbose "Required version ${version} of the ImportExcel module is not installed."
-        Install-Module -Name $name -RequiredVersion $version -Scope CurrentUser -Force -AllowClobber
+        Write-Verbose "Required version ${version} of the ${name} module is not installed."
+        if ($PSCmdlet.ShouldProcess("Version '${version}' of module '${name}'", 'Install-Module')) {
+          Install-Module -Name $name -RequiredVersion $version -Scope CurrentUser -Force -AllowClobber
+        } else {
+          if ($WhatIfPreference) {
+            Write-Verbose "Skipping execution, as no processing can be done without the version ${version} of the ${name} module."
+          } else {
+            Write-Error "No processing can be done without the version ${version} of the ${name} module."
+          }
+          return
+        }
       } else {
-        Write-Verbose "Required version ${version} of the ImportExcel module is installed."
+        Write-Verbose "Required version ${version} of the ${name} module is installed."
       }
 
       $originalModule = Get-Module -Name $name
       if ($null -eq $originalModule) {
-        Write-Verbose 'ImportExcel module is not currently imported.'
+        Write-Verbose "${name} module is not currently imported."
       } else {
-        Write-Verbose "The currently imported version of the ImportExcel module is $($originalModule.Version)."
+        Write-Verbose "The currently imported version of the ${name} module is $($originalModule.Version)."
       }
+
+      Import-Module -Name $name -RequiredVersion 7.8.9
+
+      #TODO
 
       $result = $null
       try {
         if ($null -ne $originalModule -and $originalModule.Version -ne $version) {
-          Write-Verbose "Removing the currently imported version $($originalModule.Version) of the ImportExcel module as version $version is needed."
+          Write-Verbose "Removing the currently imported version $($originalModule.Version) of the ${name} module as version ${version} is needed."
           Remove-Module -Name $name
         }
         if ($null -eq $originalModule -or $originalModule.Version -ne $version) {
-          Write-Verbose "Importing version ${version} of the ImportExcel module."
+          Write-Verbose "Importing version ${version} of the ${name} module."
           Import-Module -Name $name -RequiredVersion $version
         }
 
-        $result = & $ScriptBlock
+          #$result = & $ScriptBlock
 
       } finally {
         if ($null -eq $originalModule -or $originalModule.Version -ne $version) {
-          Write-Verbose 'Restoring the ImportExcel module to its state before the scriptlet was executed.'
-          Write-Verbose "Removing the currently imported version ${version} of the ImportExcel module."
+          Write-Verbose "Restoring the ${name} module to its state before the scriptlet was executed."
+          Write-Verbose "Removing the currently imported version ${version} of the ${name} module."
           Remove-Module -Name $name
           if ($null -ne $originalModule) {
-            Write-Verbose "Importing version $($originalModule.Version) of the ImportExcel module."
+            Write-Verbose "Importing version $($originalModule.Version) of the ${name} module."
             Import-Module $originalModule.Name -RequiredVersion $originalModule.Version
           }
         }
@@ -457,55 +471,57 @@ function New-EnhancedEquatePlusPortfolioDetails {
             OutputFile = $currentOutputFile
           }) | Out-Null
 
-        Write-Verbose 'Creating "Overview" worksheet.'
-        $params = @{
-          Path          = $currentOutputFile
-          WorksheetName = 'Overview'
-          TableStyle    = 'Light1'
-          FreezeTopRow  = $true
-          AutoSize      = $true
-        }
-        New-OverviewItems -LastRowIndex ($internalItems.Count + 1) | Export-Excel @params
-
-        Write-Verbose 'Creating "Tax Rates" worksheet.'
-        $params = @{
-          Path          = $currentOutputFile
-          WorksheetName = 'Tax Rates'
-          TableStyle    = 'Light1'
-          FreezeTopRow  = $true
-          AutoSize      = $true
-        }
-        New-TaxItems -IncomeTax $IncomeTax -CapitalGainsTax $CapitalGainsTax | Export-Excel @params
-
-        Write-Verbose 'Creating "Detailed Data" worksheet.'
-        $params = @{
-          Path          = $currentOutputFile
-          WorksheetName = 'Detailed Data'
-          TableStyle    = 'Light1'
-          FreezeTopRow  = $true
-          AutoSize      = $true
-        }
-        $internalItems | ConvertTo-DetailedItems | Export-Excel @params
-
-        Write-Verbose 'Formatting dates in the input data.'
-        foreach ($item in $inputData) {
-          $beginning = Get-Date '1899-12-30'
-          foreach ($property in @('Allocation date', 'Available from', 'Expiry date')) {
-            $item.$property = $beginning.AddDays($item.$property).ToString('yyyy-MM-dd')
+        if ($PSCmdlet.ShouldProcess($currentOutputFile, 'Create File')) {
+          Write-Verbose 'Creating "Overview" worksheet.'
+          $params = @{
+            Path          = $currentOutputFile
+            WorksheetName = 'Overview'
+            TableStyle    = 'Light1'
+            FreezeTopRow  = $true
+            AutoSize      = $true
           }
-        }
-        Write-Verbose 'Creating "Input Data" worksheet.'
-        $params = @{
-          Path          = $currentOutputFile
-          WorksheetName = 'Input Data'
-          TableStyle    = 'Light1'
-          FreezeTopRow  = $true
-          AutoSize      = $true
-          Show          = $Open
-        }
-        $inputData | Export-Excel @params
+          New-OverviewItems -LastRowIndex ($internalItems.Count + 1) | Export-Excel @params
 
-        Write-Verbose "Saved file `"${currentOutputFile}`"."
+          Write-Verbose 'Creating "Tax Rates" worksheet.'
+          $params = @{
+            Path          = $currentOutputFile
+            WorksheetName = 'Tax Rates'
+            TableStyle    = 'Light1'
+            FreezeTopRow  = $true
+            AutoSize      = $true
+          }
+          New-TaxItems -IncomeTax $IncomeTax -CapitalGainsTax $CapitalGainsTax | Export-Excel @params
+
+          Write-Verbose 'Creating "Detailed Data" worksheet.'
+          $params = @{
+            Path          = $currentOutputFile
+            WorksheetName = 'Detailed Data'
+            TableStyle    = 'Light1'
+            FreezeTopRow  = $true
+            AutoSize      = $true
+          }
+          $internalItems | ConvertTo-DetailedItems | Export-Excel @params
+
+          Write-Verbose 'Formatting dates in the input data.'
+          foreach ($item in $inputData) {
+            $beginning = Get-Date '1899-12-30'
+            foreach ($property in @('Allocation date', 'Available from', 'Expiry date')) {
+              $item.$property = $beginning.AddDays($item.$property).ToString('yyyy-MM-dd')
+            }
+          }
+          Write-Verbose 'Creating "Input Data" worksheet.'
+          $params = @{
+            Path          = $currentOutputFile
+            WorksheetName = 'Input Data'
+            TableStyle    = 'Light1'
+            FreezeTopRow  = $true
+            AutoSize      = $true
+            Show          = $Open
+          }
+          $inputData | Export-Excel @params
+
+          Write-Verbose "Saved file `"${currentOutputFile}`"."
+        }
       }
     }
 
